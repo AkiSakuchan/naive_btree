@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::mem::replace;
 use std::ptr;
 
@@ -164,5 +165,91 @@ impl<K:Ord, V> Drop for Btree<K,V>
 {
     fn drop(&mut self) {
         unsafe { drop(Box::from_raw(self.root)) };
+    }
+}
+
+pub struct Iter<'a, K: Ord, V>
+{
+    pointer: *mut Node<K,V>,
+    idx: usize,
+    is_first: bool,
+    _maker: PhantomData<&'a (K,V)>
+}
+
+impl<K:Ord, V> Node<K,V> {
+    /// 传入节点指针和成员下标, 得到对应成员的键在 Ord Trait 意义下的下一个键的成员, 如果没有更大的成员则返回 None.
+    /// is_child_index 表示下标是否是 children 数组的下标.
+    unsafe fn get_next(this: *mut Self, index: usize, is_child_index: bool) -> Option<(*mut Self, usize)>
+    {
+        if is_child_index {
+            if index < unsafe { (*this).members.len() }  { Some((this, index)) }
+            else {
+                match unsafe {(*this).parent } {
+                    None => None, 
+                    Some(parent) => unsafe { Self::get_next( parent, (*this).parent_idx, true) }
+                }
+            }
+        }
+        else {
+            unsafe {
+                match &mut (*this).children {
+                    None => if index + 1 < (*this).members.len() { Some((this, index + 1)) }
+                            else { Self::get_next(this, index + 1, true) }
+                    Some(children) => {
+                        let mut ptr = &mut children[index + 1];
+                        while let Some(ref mut child) = (*ptr).children {
+                            ptr = &mut child[0];
+                        }
+
+                        Some((box_as_mut_ptr(ptr), 0))
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<'a, K:Ord, V> Iterator for Iter<'a, K,V>
+{
+    type Item = &'a (K,V);
+
+    fn next(&mut self) -> Option<Self::Item>
+    {
+        if self.is_first {
+            self.is_first = false;
+            unsafe {
+                if (*self.pointer).members.is_empty() { None }
+                else { Some( &(*self.pointer).members[self.idx] ) }
+            }
+        }
+        else {
+            match unsafe { Node::get_next(self.pointer, self.idx, false) }
+            {
+                None => None,
+                Some((pt,i)) => {
+                    self.pointer = pt;
+                    self.idx = i;
+                    Some( unsafe { &(*self.pointer).members[i] })
+                }
+            }
+        }
+    }
+}
+
+impl<'a, K:Ord, V> Btree<K,V> {
+    pub fn iter(&self) -> Iter<'a, K,V>
+    {
+        match unsafe{ &mut (*self.root).children }
+        {
+            None => Iter{ pointer: self.root, idx:0,  is_first: true, _maker:PhantomData },
+            Some(children) => {
+                let mut ptr = &mut children[0];
+                while let Some(ref mut child) = (*ptr).children {
+                    ptr = &mut child[0];
+                }
+
+                Iter{ pointer: box_as_mut_ptr(ptr), idx: 0, is_first: true, _maker:PhantomData }
+            }
+        }
     }
 }
