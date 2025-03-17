@@ -285,8 +285,61 @@ impl<K: Ord, V> Node<K,V>
         }
     }
 
-    /// 合并同级两个兄弟节点, 把第二个参数指向的节点和两节点之间的成员合并到第一个参数指向的节点, 并返回第一个节点.
-    fn merge(left_node: &mut Box<Self>, mid_member:(K,V), right_node: Box<Self>)
+    /// 合并同级两个兄弟节点, 把第二个参数指向的节点和两节点之间的成员合并到第一个参数指向的节点
+    fn merge(current_node: &mut Box<Self>)
+    {
+        let (parent, parent_idx)  = unsafe { 
+            let (a,b) = current_node.parent.expect("必须要有父节点");
+            (a.as_mut().unwrap(), b)
+        };
+
+        let mid_member = parent.members.remove(parent_idx);
+        let mut right_node = parent.children.as_mut().unwrap().remove(parent_idx + 1);
+
+        // 拿出右节点后, 修正后续节点在父节点中的位置
+        parent.children.as_mut().unwrap()[parent_idx + 1 ..].iter_mut().for_each(|item| item.parent.as_mut().unwrap().1 -= 1);
+
+        current_node.members.push(mid_member);
+        current_node.members.append(&mut right_node.members);
+
+        let current_ptr = box_as_mut_ptr(current_node);
+        if let Some(ref mut children) = current_node.children
+        {
+            children.append(right_node.children.as_mut().unwrap());
+            
+            children[current_node.members.len() + 1 ..].iter_mut().enumerate().for_each(|(i,child)|
+                child.parent = Some((current_ptr, current_node.members.len() + 1 + i)));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests
+{
+use super::*;
+
+const DATA :[(i32,i32); 24] = [(1, 8), (4, 9), (6, 2), (8, 10), (11, 11), (13, 3), (14, 12), (16, 13),
+                                (17, 1), (19, 14), (22, 15), (23, 4), (27, 16), (34, 17), (35, 5), 
+                                (38, 18), (45, 19), (47, 6), (49, 20), (53, 21), (55, 7), (65, 22), (74, 23), (79, 24)];
+
+    fn init_test() -> Btree<i32, i32>
+    {
+
+        let mut btree = Btree::new();
+
+        DATA.iter().for_each(|(a,b)| {btree.insert(*a, *b);} );
+
+        btree
+    }
+    #[test]
+    fn merge_works()
+    {
+        let mut btree = init_test();
+        todo!()
+    }
+
+    #[test]
+    fn get_from_sibling_works()
     {
         todo!()
     }
