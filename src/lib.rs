@@ -280,13 +280,13 @@ impl<K: Ord, V> Node<K,V>
                 child.parent = Some((ptr::from_mut(self), 0));
 
                 self.children.as_mut().unwrap().iter_mut().for_each(|item| item.parent.as_mut().unwrap().1 += 1);
-                self.children.as_mut().unwrap().push(child);
+                self.children.as_mut().unwrap().insert(0,child);
             }
         }
     }
 
-    /// 合并同级两个兄弟节点, 把第二个参数指向的节点和两节点之间的成员合并到第一个参数指向的节点
-    fn merge(current_node: &mut Box<Self>)
+    /// 合并同级两个兄弟节点, 把当前节点的下一个节点合并到当前节点
+    fn merge(current_node: &mut Self)
     {
         let (parent, parent_idx)  = unsafe { 
             let (a,b) = current_node.parent.expect("必须要有父节点");
@@ -302,7 +302,7 @@ impl<K: Ord, V> Node<K,V>
         current_node.members.push(mid_member);
         current_node.members.append(&mut right_node.members);
 
-        let current_ptr = box_as_mut_ptr(current_node);
+        let current_ptr = ptr::from_mut(current_node);
         if let Some(ref mut children) = current_node.children
         {
             children.append(right_node.children.as_mut().unwrap());
@@ -318,29 +318,113 @@ mod tests
 {
 use super::*;
 
-const DATA :[(i32,i32); 24] = [(1, 8), (4, 9), (6, 2), (8, 10), (11, 11), (13, 3), (14, 12), (16, 13),
-                                (17, 1), (19, 14), (22, 15), (23, 4), (27, 16), (34, 17), (35, 5), 
-                                (38, 18), (45, 19), (47, 6), (49, 20), (53, 21), (55, 7), (65, 22), (74, 23), (79, 24)];
-
-    fn init_test() -> Btree<i32, i32>
-    {
-
-        let mut btree = Btree::new();
-
-        DATA.iter().for_each(|(a,b)| {btree.insert(*a, *b);} );
-
-        btree
+#[test]
+fn get_from_sibling_works_l()
+{
+    let mut btr = Btree::new();
+    [(1, 8), (4, 9), (6, 2), (8, 10), (11, 11), (13, 3)].into_iter().for_each(|(k,v)| { btr.insert(k, v); });
+    let children = unsafe { (*btr.root).children.as_mut().unwrap() };
+    children[0].get_from_sibling(true);
+    unsafe {
+        assert_eq!(&(*btr.root).members[0], &(8,10));
     }
-    #[test]
-    fn merge_works()
-    {
-        let mut btree = init_test();
-        todo!()
-    }
+    children[0].members.iter().for_each(|item| println!("一: {:?}", item));
+    children[1].members.iter().for_each(|item| println!("二: {:?}", item));
+}
 
-    #[test]
-    fn get_from_sibling_works()
+#[test]
+fn get_from_sibling_r()
+{
+    let mut btr = Btree::new();
+    [(1, 8), (4, 9), (6, 2), (8, 10), (11, 11), (13, 3)].into_iter().for_each(|(k,v)| { btr.insert(k, v); });
+    let children = unsafe { (*btr.root).children.as_mut().unwrap() };
+    children[1].get_from_sibling(false);
+    unsafe {
+        assert_eq!(&(*btr.root).members[0], &(4,9));
+    }
+    children[0].members.iter().for_each(|item| println!("一: {:?}", item));
+    children[1].members.iter().for_each(|item| println!("二: {:?}", item));
+}
+}
+
+impl<K:Ord, V> Node<K,V>
+{
+    fn remove(this: &mut Self, index: usize) -> (Option<*mut Self>, (K,V))
     {
-        todo!()
+        let (mut current_node, deleted_element) = match this.children.as_mut() {
+            None => {
+                let element_in_leaf = this.members.remove(index);
+                (this, element_in_leaf)
+            },
+            Some(_) => {
+                let (ptr, idx) = unsafe { Self::get_next(ptr::from_mut(this), index, false).unwrap() };
+                let reference = unsafe { ptr.as_mut().unwrap() };
+                let element_in_leaf = reference.members.remove(idx);
+                (reference, replace(&mut this.members[index], element_in_leaf))
+            }
+        };
+
+        let root_node = loop {
+            if current_node.members.len() + 1 >= (RANK + 1) / 2 { break None }
+
+            let (parent, parent_idx) = match current_node.parent {
+                None => break Some(current_node),
+                Some((parent_ptr,_)) if unsafe { (*parent_ptr).members.is_empty() } => break Some(current_node),
+                Some((parent_ptr, parent_idx)) => (unsafe { parent_ptr.as_mut().unwrap() }, parent_idx)
+            };
+
+            let sibling = parent.children.as_mut().unwrap();
+            if parent_idx + 1 < sibling.len() && sibling[parent_idx + 1].members.len() + 1 > (RANK + 1) / 2 {
+                current_node.get_from_sibling(true);
+                break None;
+            }
+            else if parent_idx > 0 && sibling[parent_idx - 1].members.len() + 1 > (RANK + 1) / 2 {
+                current_node.get_from_sibling(false);
+                break None;
+            }
+            else {
+                if parent_idx + 1 < sibling.len() {
+                    Self::merge(current_node);
+                    current_node = parent;
+                }
+                else {
+                    current_node = sibling[parent_idx - 1].as_mut();
+                    Self::merge(current_node);
+                    current_node = parent;
+                }
+            }
+        };
+
+        match root_node {
+            None => (None, deleted_element),
+            Some(root_node) if !root_node.members.is_empty() => (None, deleted_element),
+            Some(root_node) => (Some(box_as_mut_ptr(&mut root_node.children.as_mut().unwrap()[0])), deleted_element)
+        }
+    }
+}
+
+impl<K:Ord, V> Btree<K,V>
+{
+    pub fn remove(&mut self, key: &K) -> Option<(K,V)>
+    {
+        match Node::search(unsafe { self.root.as_mut().unwrap() }, key)
+        {
+            SearchResult::NonFound(_, _ ) => None,
+            SearchResult::Found(ptr, index) => {
+                let target = unsafe { ptr.as_mut().unwrap() };
+                let (root,deleted_element) = Node::remove(target, index);
+                match root {
+                    None => Some(deleted_element),
+                    Some(new_root) => {
+                        unsafe { 
+                            self.root.as_mut().unwrap().children = None; 
+                            drop(Box::from_raw(self.root));
+                        }
+                        self.root = new_root;
+                        Some(deleted_element)
+                    }
+                }
+            }
+        }
     }
 }

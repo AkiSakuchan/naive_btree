@@ -50,3 +50,18 @@ fn iter_works()
         println!("({}, {}),", it.0, it.1);
     }
 }
+
+#[test]
+fn remove_works()
+{
+    let mut btree = init_test();
+
+    for (key, value) in DATA {
+        let (rem_key, rem_value) = btree.remove(&key).expect("移除后不能传递出被移除值");
+
+        assert_eq!(key, rem_key);
+        assert_eq!(value, rem_value);
+
+        assert!(btree.get(&key).is_none(), "移除值之后依然能找到");
+    }
+}
