@@ -307,8 +307,7 @@ impl<K: Ord, V> Node<K,V>
         {
             children.append(right_node.children.as_mut().unwrap());
             
-            children[current_node.members.len() + 1 ..].iter_mut().enumerate().for_each(|(i,child)|
-                child.parent = Some((current_ptr, current_node.members.len() + 1 + i)));
+            children[0 ..].iter_mut().enumerate().for_each(|(i,child)| child.parent = Some((current_ptr, i)));
         }
     }
 }
@@ -369,7 +368,7 @@ impl<K:Ord, V> Node<K,V>
 
             let (parent, parent_idx) = match current_node.parent {
                 None => break Some(current_node),
-                Some((parent_ptr,_)) if unsafe { (*parent_ptr).members.is_empty() } => break Some(current_node),
+                //Some((parent_ptr,_)) if unsafe { (*parent_ptr).members.is_empty() } => break Some(current_node),
                 Some((parent_ptr, parent_idx)) => (unsafe { parent_ptr.as_mut().unwrap() }, parent_idx)
             };
 
@@ -398,7 +397,10 @@ impl<K:Ord, V> Node<K,V>
         match root_node {
             None => (None, deleted_element),
             Some(root_node) if !root_node.members.is_empty() => (None, deleted_element),
-            Some(root_node) => (Some(box_as_mut_ptr(&mut root_node.children.as_mut().unwrap()[0])), deleted_element)
+            Some(root_node) => match root_node.children {
+                None => (None, deleted_element),
+                Some(ref mut children) => (Some(box_as_mut_ptr(&mut children[0])), deleted_element)
+            }
         }
     }
 }
@@ -417,10 +419,12 @@ impl<K:Ord, V> Btree<K,V>
                     None => Some(deleted_element),
                     Some(new_root) => {
                         unsafe { 
+                            Box::leak((*self.root).children.as_mut().unwrap().pop().unwrap());
                             self.root.as_mut().unwrap().children = None; 
                             drop(Box::from_raw(self.root));
+                            (*new_root).parent = None;
+                            self.root = new_root;
                         }
-                        self.root = new_root;
                         Some(deleted_element)
                     }
                 }

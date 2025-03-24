@@ -52,7 +52,7 @@ fn iter_works()
 }
 
 #[test]
-fn remove_works()
+fn remove_work()
 {
     let mut btree = init_test();
 
@@ -64,4 +64,18 @@ fn remove_works()
 
         assert!(btree.get(&key).is_none(), "移除值之后依然能找到");
     }
+}
+
+#[test]
+fn reverse_remove_work()
+{
+    let mut btree = init_test();
+    DATA.iter().rev().for_each(|(key,value)| {
+        let (rem_key, rem_value) = btree.remove(key).expect("移除后不能传递出值");
+
+        assert_eq!(*key, rem_key);
+        assert_eq!(*value, rem_value);
+
+        assert!(btree.get(key).is_none(), "移除值后依然能找到");
+    }); 
 }
