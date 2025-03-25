@@ -52,6 +52,15 @@ fn iter_works()
 }
 
 #[test]
+fn iter_mut_works()
+{
+    let mut btree = init_test();
+    btree.iter_mut().for_each(|(_,v)| *v = -(*v));
+
+    DATA.iter().zip(btree.iter()).for_each(|((_, v1), (_, v2))| assert_eq!(*v1, -(*v2)));
+}
+
+#[test]
 fn remove_work()
 {
     let mut btree = init_test();
@@ -78,4 +87,27 @@ fn reverse_remove_work()
 
         assert!(btree.get(key).is_none(), "移除值后依然能找到");
     }); 
+}
+
+#[test]
+fn index_work()
+{
+    let btree = init_test();
+
+    DATA.iter().for_each(|&(key,value)| assert_eq!(value, btree[key]));
+
+    let mut btree2 = init_test();
+
+    for (k,v) in DATA.into_iter() {
+        btree2[k] += 1;
+        assert_eq!(btree2[k], v + 1);
+    }
+}
+
+#[test]
+#[should_panic]
+fn index_nonexist()
+{
+    let mut btree = init_test();
+    btree[20] = 5;
 }

@@ -1,5 +1,7 @@
+use std::marker::PhantomData;
 use std::mem::replace;
-use std::ptr;
+use std::ops::{Index, IndexMut};
+use std::ptr::{self, NonNull};
 
 const RANK:usize = 5;
 struct Node<K:Ord, V>
@@ -429,6 +431,79 @@ impl<K:Ord, V> Btree<K,V>
                     }
                 }
             }
+        }
+    }
+}
+
+pub struct IterMut<'a, K: Ord, V>
+{
+    current_node_ptr: NonNull<Node<K,V>>,
+    idx: usize,
+    is_first: bool,
+    _marker: PhantomData<&'a mut (K,V)>
+}
+
+impl<'a, K:Ord, V> Iterator for IterMut<'a, K,V>
+{
+    type Item = &'a mut (K,V);
+
+    fn next(&mut self) -> Option<Self::Item>
+    {
+        if self.is_first {
+            self.is_first = false;
+            if unsafe { self.current_node_ptr.as_ref().members.is_empty() } { None }
+            else { Some( unsafe { &mut self.current_node_ptr.as_mut().members[self.idx] } ) }
+        }
+        else {
+            match unsafe { Node::get_next(self.current_node_ptr.as_ptr(), self.idx, false) }
+            {
+                None => None,
+                Some((pt,i)) => {
+                    self.current_node_ptr = NonNull::new(pt).unwrap();
+                    self.idx = i;
+                    Some( unsafe { &mut self.current_node_ptr.as_mut().members[i] } )
+                }
+            }
+        }
+    }
+}
+
+impl<'a, K:Ord, V> Btree<K,V> {
+    pub fn iter_mut(&mut self) -> IterMut<'a, K,V>
+    {
+        match unsafe{ &mut (*self.root).children }
+        {
+            None => IterMut{ current_node_ptr: NonNull::new(self.root).unwrap(), idx:0,  is_first: true, _marker:PhantomData },
+            Some(children) => {
+                let mut ptr = &mut children[0];
+                while let Some(ref mut child) = (*ptr).children {
+                    ptr = &mut child[0];
+                }
+
+                IterMut{ current_node_ptr: NonNull::new(box_as_mut_ptr(ptr)).unwrap() , idx: 0, is_first: true, _marker:PhantomData }
+            }
+        }
+    }
+}
+
+impl<K:Ord, V> Index<K> for Btree<K,V>
+{
+    type Output = V;
+
+    fn index(&self, index: K) -> &Self::Output {
+        match self.get(&index) {
+            None => panic!("集合内没有这个键!"),
+            Some(val) => val
+        }
+    }
+}
+
+impl<K:Ord, V> IndexMut<K> for Btree<K,V>
+{
+    fn index_mut(&mut self, index: K) -> &mut Self::Output {
+        match self.get_mut(&index) {
+            None => panic!("集合内没有这个键!"),
+            Some(val) => val
         }
     }
 }
